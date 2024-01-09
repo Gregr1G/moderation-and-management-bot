@@ -1,11 +1,11 @@
 import asyncio
 import datetime
 
-from aiogram import Dispatcher, types, Router, F
+from aiogram import Bot, Dispatcher, types, Router, F
 
 from dotenv import load_dotenv
 from database.DbBot import Dbbot
-from database.db_cheker import bot
+# from database.db_cheker import bot
 from aiogram.fsm.context import FSMContext
 from keyboards import roles_kb, col_kb
 
@@ -21,13 +21,13 @@ Database = Dbbot("")
 
 """Создание экземпляра бота"""
 load_dotenv()
-# bot = Bot(os.getenv('TOKEN'))
+bot = Bot(os.getenv('TOKEN'))
 router = Router()
 
 
 
 """Получение данных нового пользователя""" # добавить фильтр для лс
-@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
+@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER), ChatTypeFilter(chat_type=["private"]))
 async def get_new_member(message: types.ChatMemberUpdated):
 
     usr = dict(message.new_chat_member.user)
@@ -50,7 +50,7 @@ async def get_roles(message: types.Message, state: FSMContext):
         await message.answer(f"Вы где-то ошиблись.\nВаше сообщение: {message.text}")
 
 
-@router.message(Newmember.addindb, F.text.in_(["Да", "Нет"]))
+@router.message(Newmember.addindb, F.text.in_(["Да", "Отмена"]))
 async def addindatabase(message: types.Message, state: FSMContext):
     await message.answer("Принято", reply_markup=types.ReplyKeyboardRemove())
 
@@ -151,10 +151,12 @@ async def tables(message: types.Message, state: FSMContext):
 
 @router.message(Table.table_name)
 async def send_table(message: types.Message, state: FSMContext):
-    # datalist = Database.reader(message.text)
-    # ans = Database.cols_list(message.text)
+    functions = ["Прочитать", "Добавить"]
 
-    await message.answer(f"Что хотите сделать?", reply_markup=roles_kb(["Прочитать", "Добавить"]))
+    if message.from_user.id == int(os.getenv("ADMINID")):
+        functions += ["Редактирование", "Удаление"]
+
+    await message.answer(f"Что хотите сделать?", reply_markup=roles_kb(functions))
     await state.update_data(table_name=message.text)
     await state.set_state(Table.mode)
 
@@ -162,14 +164,30 @@ async def send_table(message: types.Message, state: FSMContext):
 async def get_mode(message: types.Message, state: FSMContext):
     # await state.update_data(mode=message.text)
     data = await state.get_data()
+
+    if data["table_name"] == 'users' and message.from_user.id != int(os.getenv("ADMINID")):
+        return
+
     if message.text == "Прочитать":
         await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]), reply_markup=types.ReplyKeyboardRemove())
         await state.clear()
-    else:
+
+    if message.text == "Добавить":
         await message.answer("Напишите данные которые хотите добавить поразрядно.\n"
                              "Пример: 1 0 да нет\n"
-                             f"{'|'.join(Database.cols_list(data['table_name'])[1:])}")
+                             f"{'|'.join(Database.table_info(data['table_name'])[1:])}")
         await state.set_state(Table.add_data)
+
+    if message.from_user.id == int(os.getenv("ADMINID")):
+
+        if message.text == "Редактирование":
+            await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]))
+            await message.answer(f"Чтобы выбрать строку для редактирования напиши через пробел: имя колоки, значение в ряду колонки, новое значение.\nКолонки{Database.cols_list(data['table_name'])}")
+            await state.set_state(Table.edit)
+
+        if message.text == "Удаление":
+            await message.answer("Чтобы выбрать строку для уаления напишите id строки")
+            await state.set_state(Table.del_data)
 
 @router.message(Table.add_data)
 async def add_data(message: types.Message, state: FSMContext):
@@ -182,6 +200,25 @@ async def add_data(message: types.Message, state: FSMContext):
         await message.answer("Произошла ошибка, возможно вы ошиблись")
 
     await state.clear()
+
+
+@router.message(Table.edit)
+async def edit(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+    try:
+        Database.single_update(data["table_name"], message.text.split()[1], message.text.split()[0],message.text.split()[2])
+        await message.answer("Данные изменены")
+    except Exception:
+        await message.answer("Ошибка")
+
+@router.message(Table.del_data)
+async def delete(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    if message.text.isdigit():
+        Database.deleter("string", data["table_name"], int(message.text))
+
+
 
 
 @router.message()

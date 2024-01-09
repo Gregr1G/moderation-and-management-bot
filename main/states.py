@@ -15,3 +15,5 @@ class Table(StatesGroup):
     table_name = State()
     mode = State()
     add_data = State()
+    del_data = State()
+    edit = State()

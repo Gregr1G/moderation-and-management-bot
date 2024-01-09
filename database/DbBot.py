@@ -52,6 +52,12 @@ class Dbbot:
 
         return names
 
+    def table_info(self, table_name):
+        list_of_col = self.cursor.execute(f'desc {table_name}')
+        names = [description[1] for description in self.cursor.fetchall()]
+
+        return names
+
     def add_to_table(self, table_name, args):
         """добавление данных в таблицу"""
 
@@ -70,6 +76,10 @@ class Dbbot:
         for i in range(1, len(table_c)):
             if arg[i] != '-':
                 self.cursor.execute(f"UPDATE {table_name} SET {table_c[i]} = {arg[i]} WHERE {param}={id};")
+        return self.connect.commit()
+
+    def single_update(self,table_name, id, param, new):
+        self.cursor.execute(f"UPDATE {table_name} SET {param} = {new} WHERE {param}={id};")
         return self.connect.commit()
 
     def reader(self, table_name):
