@@ -1,11 +1,18 @@
 import asyncio
 import datetime
 
-from aiogram import Bot, Dispatcher, types, Router, F
+from aiogram import Bot, Dispatcher, Router, F
 
 from dotenv import load_dotenv
+
 from database.DbBot import Dbbot
-# from database.db_cheker import bot
+from database.db_cheker import clean
+from supmodules.helpmodule import *
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+
+
 from aiogram.fsm.context import FSMContext
 from keyboards import roles_kb, col_kb
 
@@ -27,7 +34,7 @@ router = Router()
 
 
 """Получение данных нового пользователя""" # добавить фильтр для лс
-@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER), ChatTypeFilter(chat_type=["private"]))
+@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
 async def get_new_member(message: types.ChatMemberUpdated):
 
     usr = dict(message.new_chat_member.user)
@@ -54,7 +61,7 @@ async def get_roles(message: types.Message, state: FSMContext):
 async def addindatabase(message: types.Message, state: FSMContext):
     await message.answer("Принято", reply_markup=types.ReplyKeyboardRemove())
 
-    if message.text == "Нет":
+    if message.text == "Отмена":
         await state.clear()
         return
 
@@ -66,6 +73,7 @@ async def addindatabase(message: types.Message, state: FSMContext):
                                                message.from_user.id,
                                                f"@{message.from_user.username}",
                                                message.from_user.first_name])
+
 
     data = await state.get_data()
     await state.clear()
@@ -87,8 +95,10 @@ async def addindatabase(message: types.Message, state: FSMContext):
         Database.update_data_in_table("users", message.from_user.id, "user_id", update_query)
 
 
-"""Хэндлеры для управления базой данных"""
+    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
 
+
+"""Хэндлеры для управления базой данных"""
 """Админ"""
 # тэг участников по ролям
 @router.message(Command("tag"), ChatTypeFilter(chat_type=["private"]))
@@ -120,6 +130,8 @@ async def sendmessage(message: types.Message, state: FSMContext):
         await message.copy_to(os.getenv("CHAT_ID"), caption=f"{text}\n{' '.join([item[0] for item in  tag_list['roles_to_tag'][0]])}")
     await state.clear()
 
+    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 # добавление и удаление колонок ролей
 @router.message(Command(commands=["addroles", "delroles"]), ChatTypeFilter(chat_type=["private"]))
 async def roles_manage(message: types.Message):
@@ -135,6 +147,8 @@ async def roles_manage(message: types.Message):
             func(i)
 
         await message.answer(f"Роли на данный момент: {Database.cols_list('users')[5:]}")
+
+
 
 """Управление таблицами"""
 @router.message(Command("tables"), ChatTypeFilter(chat_type=["private"]))
@@ -172,6 +186,8 @@ async def get_mode(message: types.Message, state: FSMContext):
         await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]), reply_markup=types.ReplyKeyboardRemove())
         await state.clear()
 
+        await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
     if message.text == "Добавить":
         await message.answer("Напишите данные которые хотите добавить поразрядно.\n"
                              "Пример: 1 0 да нет\n"
@@ -182,7 +198,8 @@ async def get_mode(message: types.Message, state: FSMContext):
 
         if message.text == "Редактирование":
             await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]))
-            await message.answer(f"Чтобы выбрать строку для редактирования напиши через пробел: имя колоки, значение в ряду колонки, новое значение.\nКолонки{Database.cols_list(data['table_name'])}")
+            await message.answer(f"Чтобы выбрать строку для редактирования напиши через пробел: имя колоки, значение в ряду колонки, новое значение."
+                                 f"\nКолонки{Database.cols_list(data['table_name'])}")
             await state.set_state(Table.edit)
 
         if message.text == "Удаление":
@@ -201,6 +218,8 @@ async def add_data(message: types.Message, state: FSMContext):
 
     await state.clear()
 
+    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 
 @router.message(Table.edit)
 async def edit(message: types.Message, state: FSMContext):
@@ -212,29 +231,33 @@ async def edit(message: types.Message, state: FSMContext):
     except Exception:
         await message.answer("Ошибка")
 
+    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 @router.message(Table.del_data)
 async def delete(message: types.Message, state: FSMContext):
     data = await state.get_data()
     if message.text.isdigit():
         Database.deleter("string", data["table_name"], int(message.text))
 
+    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
 
 
 
-@router.message()
-async def user_check(message: types.Message):
-    if message.chat.type != "private":
-        if Database.check_or_get("id", "user_id",f"{message.from_user.id}"):
-            pass
-        else:
-            await bot.ban_chat_member(message.chat.id, message.from_user.id)
 
 async def main():
     dp = Dispatcher(bot=bot)
+
+    scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(clean, trigger="interval", minutes=1,kwargs={"bot":bot})
+    scheduler.start()
+
     dp.include_router(router)
+
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
+
 
 
 if __name__ == '__main__':
