@@ -3,20 +3,14 @@ import datetime
 
 
 class Dbbot:
-    # def __init__(self, db_file_name):
-    #     """создание или подключение к бд"""
-    #
-    #     self.connect = sqlite3.connect(f'{db_file_name}.db')
-    #     self.cursor = self.connect.cursor()
-
-    def __init__(self, db_file_name):
+    def __init__(self, host,port,user,password,db_name):
         try:
             self.connect = pymysql.connect(
-            host='localhost',
-            port=3306,
-            user='root',
-            password='1234',
-            database = 'hui'
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database = db_name
 )
             print("successfully connected...")
             print("#" * 20)

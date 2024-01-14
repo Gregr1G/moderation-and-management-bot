@@ -2,11 +2,15 @@ from aiogram import Bot
 import datetime
 from database.DbBot import Dbbot
 import os
+from dotenv import load_dotenv
 
-Database = Dbbot("")
+load_dotenv()
+Database = Dbbot('localhost',3306,'root','1234','hui')
 
 async def clean(bot: Bot):
+
     delete_time = datetime.datetime.now() - datetime.timedelta(minutes=20)
+
     for user in Database.reader("users"):
         if sum(user[5:]) <= 0 and user[1] < delete_time:
             print(user[2])

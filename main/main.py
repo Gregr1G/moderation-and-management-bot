@@ -24,7 +24,7 @@ import os
 
 
 """Подключение к базе данных"""
-Database = Dbbot("")
+Database = Dbbot('localhost',3306,'root','1234','hui')
 
 """Создание экземпляра бота"""
 load_dotenv()
@@ -38,18 +38,29 @@ router = Router()
 async def get_new_member(message: types.ChatMemberUpdated):
 
     usr = dict(message.new_chat_member.user)
-    usr["id"] = 1055854958
-    await bot.send_message(usr["id"], "Напиши команду /roles чтобы выбрать или изменить роли.", reply_markup=roles_kb(["/roles"]))
+
+    if not(Database.check_or_get("user_id", "user_id", usr["id"])):
+
+
+        Database.add_to_table('users', [0,
+                                        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        usr["id"],
+                                        f"@{usr['username']}",
+                                        message.from_user.first_name])
+
+
+    await bot.send_message(usr["id"], "Напиши команду /roles чтобы выбрать или изменить роли. \n"
+                                      "Вы будете удалены если не выберите роли.", reply_markup=roles_kb(["/roles"]))
 
 @router.message(Command("roles"), ChatTypeFilter(chat_type=["private"]))
 async def start_reg(message: types.Message, state: FSMContext):
     await message.answer(f"Напиши роли из списка: {' '.join(Database.cols_list('users')[5:])}\nПример: role1 role2 role10", reply_markup=types.ReplyKeyboardRemove())
     await state.set_state(Newmember.roles)
 
-@router.message(Newmember.roles)    # F.text.in_(Database.cols_list('users')[5:]+["Готово"])
+@router.message(Newmember.roles)
 async def get_roles(message: types.Message, state: FSMContext):
     if set(message.text.split()).issubset(Database.cols_list('users')[5:]):
-        await message.answer("Подтвердить?", reply_markup=roles_kb(["Да", "Нет"]))
+        await message.answer("Подтвердить?", reply_markup=roles_kb(["Да", "Отмена"]))
         await state.update_data(roles=message.text.split())
 
         await state.set_state(Newmember.addindb)
@@ -63,25 +74,13 @@ async def addindatabase(message: types.Message, state: FSMContext):
 
     if message.text == "Отмена":
         await state.clear()
+
         return
-
-    if not(Database.check_or_get("user_id", "user_id", message.from_user.id)):
-
-
-        await state.update_data(addindatabase=[0,
-                                               datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                               message.from_user.id,
-                                               f"@{message.from_user.username}",
-                                               message.from_user.first_name])
-
 
     data = await state.get_data()
     await state.clear()
 
-    if "addindatabase" in data:
-        Database.add_to_table('users', data["addindatabase"])
-
-    if "roles" in data:
+    if "roles" in data and bool(Database.check_or_get("user_id", "user_id", message.from_user.id)):
         update_query = Database.cols_list("users")[5:]
 
         for i in range(len(update_query)):
@@ -95,7 +94,7 @@ async def addindatabase(message: types.Message, state: FSMContext):
         Database.update_data_in_table("users", message.from_user.id, "user_id", update_query)
 
 
-    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 
 
 """Хэндлеры для управления базой данных"""
@@ -107,6 +106,8 @@ async def get_tag_roles(message: types.Message, state: FSMContext):
         await message.answer(f"Напишите роли для тэга через пробел.\n"
                              f"Роли на данный момент: {' '.join(Database.cols_list('users')[5:])}")
         await state.set_state(Tag.roles_to_tag)
+    else:
+        await message.answer("Не понимаю")
 
 @router.message(Tag.roles_to_tag)
 async def get_message(message: types.Message, state: FSMContext):
@@ -117,20 +118,24 @@ async def get_message(message: types.Message, state: FSMContext):
 @router.message(Tag.send_fin_message, ChatTypeFilter(chat_type=["private"]))
 async def sendmessage(message: types.Message, state: FSMContext):
     tag_list = await state.get_data()
-
-
-    if tag_list:
-        text = ""
-
-        if message.text:
-            text += message.text
-        if message.caption:
-            text += message.caption
-        # добавить цикл
-        await message.copy_to(os.getenv("CHAT_ID"), caption=f"{text}\n{' '.join([item[0] for item in  tag_list['roles_to_tag'][0]])}")
     await state.clear()
 
-    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+    if not tag_list:
+        return
+
+    tags = lol([item[0] for item in tag_list['roles_to_tag'][0]], 50)
+
+
+    for tag in tags:
+
+        if message.text:
+            await bot.send_message(os.getenv("CHAT_ID"), f"{message.text}\n{' '.join(tag)}")
+
+        if message.caption:
+            await message.copy_to(os.getenv("CHAT_ID"), caption=f"{message.caption}\n{' '.join(tag)}")
+
+
+
 
 # добавление и удаление колонок ролей
 @router.message(Command(commands=["addroles", "delroles"]), ChatTypeFilter(chat_type=["private"]))
@@ -147,7 +152,8 @@ async def roles_manage(message: types.Message):
             func(i)
 
         await message.answer(f"Роли на данный момент: {Database.cols_list('users')[5:]}")
-
+    else:
+        await message.answer("Не понимаю")
 
 
 """Управление таблицами"""
@@ -180,30 +186,36 @@ async def get_mode(message: types.Message, state: FSMContext):
     data = await state.get_data()
 
     if data["table_name"] == 'users' and message.from_user.id != int(os.getenv("ADMINID")):
+        await message.answer("Не понимаю")
         return
+
 
     if message.text == "Прочитать":
         await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]), reply_markup=types.ReplyKeyboardRemove())
         await state.clear()
 
-        await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 
     if message.text == "Добавить":
         await message.answer("Напишите данные которые хотите добавить поразрядно.\n"
                              "Пример: 1 0 да нет\n"
                              f"{'|'.join(Database.table_info(data['table_name'])[1:])}")
+
         await state.set_state(Table.add_data)
 
     if message.from_user.id == int(os.getenv("ADMINID")):
 
         if message.text == "Редактирование":
             await message.answer('\n'.join([' '.join(map(str, list(item))) for item in Database.reader(data['table_name'])]))
+
             await message.answer(f"Чтобы выбрать строку для редактирования напиши через пробел: имя колоки, значение в ряду колонки, новое значение."
+                                 
                                  f"\nКолонки{Database.cols_list(data['table_name'])}")
             await state.set_state(Table.edit)
 
         if message.text == "Удаление":
             await message.answer("Чтобы выбрать строку для уаления напишите id строки")
+
             await state.set_state(Table.del_data)
 
 @router.message(Table.add_data)
@@ -218,7 +230,7 @@ async def add_data(message: types.Message, state: FSMContext):
 
     await state.clear()
 
-    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 
 
 @router.message(Table.edit)
@@ -231,17 +243,23 @@ async def edit(message: types.Message, state: FSMContext):
     except Exception:
         await message.answer("Ошибка")
 
-    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
+
 
 @router.message(Table.del_data)
 async def delete(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    await state.clear()
     if message.text.isdigit():
         Database.deleter("string", data["table_name"], int(message.text))
 
-    await message.answer(desc_choise(message), reply_markup=col_kb(kb_choise(message)))
 
-
+# @router.message(ChatTypeFilter(chat_type=["group", "supergroup"]))
+# async def user_check(message: types.Message):
+#     if Database.check_or_get("id", "user_id", f"{message.from_user.id}"):
+#         pass
+#     else:
+#         await bot.restrict_chat_member(message.chat.id, message.from_user.id, permissions=ChatPermissions(can_send_messages=False, can_invite_users=False))
+#         await bot.send_message(message.from_user.id, "Выберите роли!!!")
 
 
 async def main():

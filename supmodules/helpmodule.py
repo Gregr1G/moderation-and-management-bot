@@ -2,6 +2,11 @@ import prettytable
 from aiogram import types
 import os
 
+user = ""
+
+admin = ""
+
+
 def table_former(data, ans):
     a = prettytable.PrettyTable(ans)
     for i in data:
@@ -20,13 +25,15 @@ def kb_choise(message: types.Message):
         return user_keyboard
 
 def desc_choise(message: types.Message):
-    admin = "Описание админ"
-    user = "Описание"
+    admin = "--------------------"
+    user = "--------------------"
 
     if message.from_user.id == int(os.getenv("ADMINID")):
         return admin
     else:
         return user
+
+lol = lambda lst, sz: [lst[i:i+sz] for i in range(0, len(lst), sz)]
 
 
 
